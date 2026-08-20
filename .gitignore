@@ -1,5 +1,5 @@
-data/
-models/
+/data/
+/models/
 .venv/
 .env
 __pycache__/
