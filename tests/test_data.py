@@ -3,6 +3,14 @@ import pytest
 
 from src.data.load_data import ID_COLUMN, TARGET_COLUMN, clean_data, load_raw_data
 
+EXPECTED_COLUMNS = {
+    "gender", "SeniorCitizen", "Partner", "Dependents", "tenure",
+    "PhoneService", "MultipleLines", "InternetService", "OnlineSecurity",
+    "OnlineBackup", "DeviceProtection", "TechSupport", "StreamingTV",
+    "StreamingMovies", "Contract", "PaperlessBilling", "PaymentMethod",
+    "MonthlyCharges", "TotalCharges", "Churn",
+}
+
 
 @pytest.fixture(scope="module")
 def clean_df() -> pd.DataFrame:
@@ -34,3 +42,11 @@ def test_tenure_zero_customers_have_zero_total_charges(clean_df):
 
 def test_row_count_preserved(clean_df):
     assert len(clean_df) == 7043
+
+
+def test_expected_columns_present(clean_df):
+    assert set(clean_df.columns) == EXPECTED_COLUMNS
+
+
+def test_churn_column_is_integer_dtype(clean_df):
+    assert pd.api.types.is_integer_dtype(clean_df[TARGET_COLUMN])

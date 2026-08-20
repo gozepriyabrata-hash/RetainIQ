@@ -4,6 +4,7 @@ Kept out of the notebook so notebooks/01_eda.ipynb only calls into this module
 instead of embedding analysis or plotting logic inline.
 """
 
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -12,6 +13,8 @@ import seaborn as sns
 
 from src.data.config import FIGURES_DIR
 from src.data.load_data import TARGET_COLUMN
+
+logger = logging.getLogger(__name__)
 
 SEGMENT_COLUMNS = ["Contract", "InternetService", "PaymentMethod", "TechSupport", "SeniorCitizen"]
 NUMERIC_COLUMNS = ["tenure", "MonthlyCharges", "TotalCharges"]
@@ -112,11 +115,12 @@ def generate_all_figures(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> list[
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     from src.data.load_data import load_clean_data
 
     df = load_clean_data()
     paths = generate_all_figures(df)
-    print(f"Saved {len(paths)} figures to {FIGURES_DIR}")
+    logger.info("Saved %d figures to reports/figures/", len(paths))
 
 
 if __name__ == "__main__":

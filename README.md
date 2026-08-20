@@ -7,7 +7,7 @@ it all through a REST API and an interactive dashboard, with drift monitoring an
 Built on the [IBM Telco Customer Churn](https://www.kaggle.com/datasets/blastchar/telco-customer-churn)
 dataset (7,043 customers, ~26.5% churn rate).
 
-See `CLAUDE.md` for full architecture, conventions, and the build-phase tracker.
+See `.claude/CLAUDE.md` for full architecture, conventions, and the build-phase tracker.
 
 ## Setup
 
@@ -22,4 +22,5 @@ Download `WA_Fn-UseC_-Telco-Customer-Churn.csv` from Kaggle and place it at
 
 ## Status
 
-Phase 0 (scaffold) complete. See `CLAUDE.md` section 14 for the phase tracker.
+Phase 0 (scaffold) and Phase 1 (data loading, cleaning, EDA, first tests)
+complete. See `.claude/CLAUDE.md` section 14 for the phase tracker.

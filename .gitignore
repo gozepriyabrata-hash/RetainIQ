@@ -1,7 +1,10 @@
 /data/
 /models/
+*.pkl
+*.joblib
 .venv/
-.env
+.env*
+!.env.example
 __pycache__/
 *.pyc
 mlruns/

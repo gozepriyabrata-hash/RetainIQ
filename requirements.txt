@@ -12,6 +12,9 @@ uvicorn[standard]
 streamlit
 plotly
 seaborn
+matplotlib
+notebook
+ipykernel
 evidently
 prefect
 python-dotenv
