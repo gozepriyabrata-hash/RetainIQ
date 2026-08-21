@@ -257,6 +257,11 @@ Work top to bottom. Update the status as phases complete.
 | 5 | FastAPI service + Streamlit dashboard + What-If panel | ☐ |
 | 6 | Evidently drift, retraining flow, Docker, deploy notes | ☐ |
 
+Phase 1 was extended (not a new phase row, per `.claude/specs/02-churn-patterns.md`'s
+own scope decision) with a churn-patterns deep-dive: distribution analysis, IQR-based
+outlier detection, and a documented investigation of the 11 missing `TotalCharges`
+rows, in `notebooks/02_churn_patterns.ipynb` and `src/data/eda.py`.
+
 **Definition of done:** a recruiter can open the dashboard, upload a customer CSV, see calibrated
 churn probabilities with SHAP explanations and next-best-action recommendations, and call the REST
 API — backed by a model at AUC ≥ 0.85, with drift monitoring and automated retraining in place.
