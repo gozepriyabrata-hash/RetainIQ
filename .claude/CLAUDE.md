@@ -108,6 +108,9 @@ python -m src.data.eda
 # Regenerate tenure-cohort figures (retention curve, churn trend by band)
 python -m src.data.cohorts
 
+# Regenerate customer value-segmentation figures (segment profile, churn rate by segment)
+python -m src.models.segmentation
+
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
