@@ -111,6 +111,9 @@ python -m src.data.cohorts
 # Regenerate customer value-segmentation figures (segment profile, churn rate by segment)
 python -m src.models.segmentation
 
+# Regenerate retention-funnel (lifecycle stage) figures
+python -m src.data.lifecycle
+
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
