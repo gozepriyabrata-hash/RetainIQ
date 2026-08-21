@@ -114,6 +114,9 @@ python -m src.models.segmentation
 # Regenerate retention-funnel (lifecycle stage) figures
 python -m src.data.lifecycle
 
+# Regenerate churn-driver-ID figures (correlation, chi-square, SHAP global importance)
+python -m src.explain.driver_analysis
+
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
