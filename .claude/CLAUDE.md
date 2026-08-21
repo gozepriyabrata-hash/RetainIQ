@@ -102,6 +102,12 @@ pip install -r requirements.txt
 # Tests (run before every commit)
 pytest -q
 
+# Regenerate EDA figures (distributions, outliers, segment churn rates)
+python -m src.data.eda
+
+# Regenerate tenure-cohort figures (retention curve, churn trend by band)
+python -m src.data.cohorts
+
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
@@ -261,6 +267,12 @@ Phase 1 was extended (not a new phase row, per `.claude/specs/02-churn-patterns.
 own scope decision) with a churn-patterns deep-dive: distribution analysis, IQR-based
 outlier detection, and a documented investigation of the 11 missing `TotalCharges`
 rows, in `notebooks/02_churn_patterns.ipynb` and `src/data/eda.py`.
+
+Phase 1 was further extended (again not a new phase row, per
+`.claude/specs/03-cohort-analysis.md`) with tenure-cohort analysis: binning
+customers into 0-12/12-24/24-48/48-72-month bands, per-cohort churn/retention
+rates, and an empirical (non-censoring-corrected) retention curve, in
+`notebooks/03_cohort_analysis.ipynb` and `src/data/cohorts.py`.
 
 **Definition of done:** a recruiter can open the dashboard, upload a customer CSV, see calibrated
 churn probabilities with SHAP explanations and next-best-action recommendations, and call the REST

@@ -38,7 +38,7 @@ def class_balance(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"count": counts, "pct": pct})
 
 
-def _save_fig(fig: plt.Figure, filename: str, out_dir: Path = FIGURES_DIR) -> Path:
+def save_fig(fig: plt.Figure, filename: str, out_dir: Path = FIGURES_DIR) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / filename
     fig.savefig(path, dpi=150, bbox_inches="tight")
@@ -55,7 +55,7 @@ def plot_class_balance(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> Path:
     ax.set_ylabel("Number of Customers")
     for i, v in enumerate(counts.values):
         ax.text(i, v + 30, f"{v} ({v / counts.sum():.1%})", ha="center")
-    return _save_fig(fig, "class_balance.png", out_dir)
+    return save_fig(fig, "class_balance.png", out_dir)
 
 
 def plot_churn_rate_by_segment(df: pd.DataFrame, column: str, out_dir: Path = FIGURES_DIR) -> Path:
@@ -68,7 +68,7 @@ def plot_churn_rate_by_segment(df: pd.DataFrame, column: str, out_dir: Path = FI
     ax.tick_params(axis="x", rotation=30)
     for tick in ax.get_xticklabels():
         tick.set_ha("right")
-    return _save_fig(fig, f"churn_rate_by_{column}.png", out_dir)
+    return save_fig(fig, f"churn_rate_by_{column}.png", out_dir)
 
 
 def plot_tenure_distribution(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> Path:
@@ -81,7 +81,7 @@ def plot_tenure_distribution(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> P
     ax.set_xlabel("Tenure (months)")
     ax.set_ylabel("Number of Customers")
     ax.legend(title="Churn", labels=["Yes", "No"])
-    return _save_fig(fig, "tenure_distribution.png", out_dir)
+    return save_fig(fig, "tenure_distribution.png", out_dir)
 
 
 def plot_charges_distribution(df: pd.DataFrame, column: str, out_dir: Path = FIGURES_DIR) -> Path:
@@ -93,7 +93,7 @@ def plot_charges_distribution(df: pd.DataFrame, column: str, out_dir: Path = FIG
     ax.set_title(f"{column} Distribution by Churn")
     ax.set_xlabel(column)
     ax.set_ylabel("Density")
-    return _save_fig(fig, f"{column.lower()}_distribution.png", out_dir)
+    return save_fig(fig, f"{column.lower()}_distribution.png", out_dir)
 
 
 def plot_correlation_heatmap(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> Path:
@@ -101,7 +101,7 @@ def plot_correlation_heatmap(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> P
     fig, ax = plt.subplots(figsize=(6, 5))
     sns.heatmap(numeric_df.corr(), annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)
     ax.set_title("Correlation Between Numeric Features and Churn")
-    return _save_fig(fig, "correlation_heatmap.png", out_dir)
+    return save_fig(fig, "correlation_heatmap.png", out_dir)
 
 
 def _iqr_fence(s: pd.Series, k: float = IQR_MULTIPLIER) -> tuple[float, float, float, float, float]:
@@ -164,7 +164,7 @@ def plot_outlier_boxplot(df: pd.DataFrame, column: str, out_dir: Path = FIGURES_
     ax.set_xticks([0, 1])
     ax.set_xticklabels(["No", "Yes"])
     ax.set_ylabel(column)
-    return _save_fig(fig, f"{column.lower()}_boxplot.png", out_dir)
+    return save_fig(fig, f"{column.lower()}_boxplot.png", out_dir)
 
 
 def generate_all_figures(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> list[Path]:
