@@ -1,7 +1,6 @@
 import pandas as pd
-import pytest
 
-from src.data.load_data import ID_COLUMN, TARGET_COLUMN, clean_data, load_raw_data
+from src.data.load_data import ID_COLUMN, TARGET_COLUMN, load_raw_data, missing_total_charges_rows
 
 EXPECTED_COLUMNS = {
     "gender", "SeniorCitizen", "Partner", "Dependents", "tenure",
@@ -10,12 +9,6 @@ EXPECTED_COLUMNS = {
     "StreamingMovies", "Contract", "PaperlessBilling", "PaymentMethod",
     "MonthlyCharges", "TotalCharges", "Churn",
 }
-
-
-@pytest.fixture(scope="module")
-def clean_df() -> pd.DataFrame:
-    raw = load_raw_data()
-    return clean_data(raw)
 
 
 def test_no_missing_values(clean_df):
@@ -50,3 +43,11 @@ def test_expected_columns_present(clean_df):
 
 def test_churn_column_is_integer_dtype(clean_df):
     assert pd.api.types.is_integer_dtype(clean_df[TARGET_COLUMN])
+
+
+def test_missing_total_charges_pattern():
+    missing = missing_total_charges_rows(load_raw_data())
+    assert len(missing) == 11
+    assert (missing["tenure"] == 0).all()
+    assert (missing["Churn"] == "No").all()
+    assert missing["Contract"].value_counts().to_dict() == {"Two year": 10, "One year": 1}
