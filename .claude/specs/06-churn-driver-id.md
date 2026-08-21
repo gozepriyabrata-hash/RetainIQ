@@ -32,6 +32,29 @@
 > drivers while the chi-square table (by design) does not test them. All
 > numbers below are verified against `load_clean_data()`'s current 7,043 rows
 > with the exact pipeline this feature implements, not estimated.
+>
+> Post-commit hardening note: this feature was implemented, reviewed, and
+> committed (`72e00aa`), then given a second `quality-reviewer` pass on the
+> committed diff, which found the first pass's SHAP-aggregation fix had no
+> regression test, plus several robustness gaps. That second round of fixes
+> — landed in a follow-up commit, not a rewrite of `72e00aa` — replaced the
+> `_original_column_for` string-prefix-matching heuristic (and its
+> prefix-collision tests) with `_feature_group_columns`, an exact mapping
+> built from the fitted `OneHotEncoder`'s own `categories_` rather than
+> parsing generated feature-name strings; pinned `shap==0.52.0` and
+> `xgboost==3.4.1` in `requirements.txt` (CLAUDE.md §12); made
+> `OneHotEncoder`'s `sparse_output=False` explicit rather than relying on
+> `ColumnTransformer`'s density-threshold default; added a `shap_values.ndim
+> == 2` guard so a future `shap`/`xgboost` version returning a different
+> output shape fails loudly instead of silently computing wrong importances;
+> logged the diagnostic model's AUC/PR-AUC on the `python -m
+> src.explain.driver_analysis` CLI path (previously only visible via the
+> notebook); and extracted the aggregation math into
+> `_aggregate_shap_by_group`, unit-tested directly against a hand-computed
+> matrix so a regression to the buggy method fails loudly. All verified
+> numbers below were re-derived after these changes and are unchanged (the
+> exact mapping is mathematically equivalent to the corrected heuristic it
+> replaced — confirmed by direct before/after comparison, not assumed).
 
 ---
 
@@ -560,8 +583,10 @@ rather than SHAP.
 
 - All 8 tasks checked off.
 - `pytest -q` green (all existing tests + `test_driver_analysis.py`'s
-  tests, including `_original_column_for`'s prefix-collision and
-  unmatched-feature-name coverage added during quality review).
+  tests, including the ID_COLUMN-drop, `_feature_group_columns`
+  exact-mapping, and `_aggregate_shap_by_group` regression tests added
+  during the post-commit quality-review hardening pass — see the note at
+  the top of this file).
 - `notebooks/06_churn_driver_id.ipynb` executes top-to-bottom without error.
 - `reports/figures/` gains 3 new PNGs, no existing one altered.
 - CLAUDE.md §5 documents `python -m src.explain.driver_analysis`.

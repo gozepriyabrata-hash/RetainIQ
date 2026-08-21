@@ -1,9 +1,12 @@
+import numpy as np
 import pytest
 
-from src.data.load_data import TARGET_COLUMN
+from src.data.eda import NUMERIC_COLUMNS
+from src.data.load_data import ID_COLUMN, TARGET_COLUMN
 from src.explain.driver_analysis import (
     LEAKAGE_AUC_THRESHOLD,
-    _original_column_for,
+    _aggregate_shap_by_group,
+    _feature_group_columns,
     build_driver_features,
     check_auc_leakage_guard,
     chi_square_service_association,
@@ -22,6 +25,22 @@ VERIFIED_CRAMERS_V = {
     "StreamingTV": 0.2305, "MultipleLines": 0.0401, "PhoneService": 0.0114,
 }
 DOMAIN_SIGNAL_COLUMNS = {"Contract", "tenure", "TechSupport", "PaymentMethod", "InternetService"}
+
+
+class _FakeEncoder:
+    def __init__(self, categories):
+        self.categories_ = categories
+
+
+class _FakePreprocessor:
+    """Duck-typed stand-in for a fitted ColumnTransformer's "cat" step.
+
+    _feature_group_columns only reads named_transformers_["cat"].categories_,
+    so a real ColumnTransformer/OneHotEncoder fit isn't needed to unit-test it.
+    """
+
+    def __init__(self, categories):
+        self.named_transformers_ = {"cat": _FakeEncoder(categories)}
 
 
 def test_numeric_correlation_matches_verified_values(clean_df):
@@ -58,6 +77,19 @@ def test_build_driver_features_excludes_target(clean_df):
     assert len(y) == len(clean_df)
 
 
+def test_build_driver_features_drops_id_column_when_present(clean_df):
+    with_id = clean_df.copy()
+    with_id[ID_COLUMN] = [f"C{i}" for i in range(len(with_id))]
+    X, _ = build_driver_features(with_id)
+    assert ID_COLUMN not in X.columns
+
+
+def test_build_driver_features_raises_when_target_missing(clean_df):
+    without_target = clean_df.drop(columns=[TARGET_COLUMN])
+    with pytest.raises(KeyError):
+        build_driver_features(without_target)
+
+
 def test_check_auc_leakage_guard_raises_above_threshold():
     with pytest.raises(ValueError):
         check_auc_leakage_guard(0.97)
@@ -77,18 +109,37 @@ def test_fit_driver_diagnostic_model_auc_is_honest(clean_df):
     assert 0.75 < result["auc"] < LEAKAGE_AUC_THRESHOLD
 
 
-def test_original_column_for_resolves_prefix_collision():
-    # A hypothetical InternetService / InternetServiceType pair: the "_"
-    # boundary check must stop InternetService from stealing
-    # InternetServiceType's dummy.
-    columns = ["InternetService", "InternetServiceType"]
-    assert _original_column_for("cat__InternetService_Fiber optic", columns) == "InternetService"
-    assert _original_column_for("cat__InternetServiceType_Business", columns) == "InternetServiceType"
+def test_feature_group_columns_maps_dummies_to_original_columns():
+    categorical_columns = ["InternetService", "Contract"]
+    preprocessor = _FakePreprocessor([
+        np.array(["DSL", "Fiber optic", "No"]),
+        np.array(["Month-to-month", "One year", "Two year"]),
+    ])
+    groups = _feature_group_columns(preprocessor, categorical_columns)
+    expected = list(NUMERIC_COLUMNS) + ["InternetService"] * 3 + ["Contract"] * 3
+    assert list(groups) == expected
 
 
-def test_original_column_for_raises_on_unmatched_feature():
-    with pytest.raises(ValueError):
-        _original_column_for("cat__NotAKnownColumn_Yes", ["Contract", "PaymentMethod"])
+def test_aggregate_shap_by_group_sums_signed_values_before_taking_abs():
+    # Two rows, one group "A" with two dummy columns. Row 0's dummies
+    # partially offset (+3, -1 -> true per-row contribution +2); row 1's
+    # don't (+1, +1 -> true per-row contribution +2). The correct
+    # aggregation (sum signed values per row, then mean(|.|)) gives
+    # (|2| + |2|) / 2 = 2.0. The bug this regression-guards against --
+    # summing each dummy's own mean(|shap|) independently -- would instead
+    # give (3+1)/2 + (1+1)/2 = 3.0, silently overcounting the group.
+    shap_values = np.array([
+        [3.0, -1.0],
+        [1.0, 1.0],
+    ])
+    original_columns = np.array(["A", "A"])
+
+    result = _aggregate_shap_by_group(shap_values, original_columns).set_index("column")
+    assert result.loc["A", "mean_abs_shap"] == pytest.approx(2.0)
+
+    naive_overcounted = float(np.abs(shap_values).mean(axis=0).sum())
+    assert naive_overcounted == pytest.approx(3.0)
+    assert result.loc["A", "mean_abs_shap"] != pytest.approx(naive_overcounted)
 
 
 def test_shap_global_importance_excludes_target_and_is_sorted(clean_df):

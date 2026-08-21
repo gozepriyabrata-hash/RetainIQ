@@ -73,6 +73,15 @@ def chi_square_service_association(df: pd.DataFrame) -> pd.DataFrame:
     Scoped to SERVICE_COLUMNS only (CLAUDE.md Sec 6's "Services" bucket) --
     Contract/PaymentMethod/etc. are Account columns, not Services, and are
     covered instead by shap_global_importance, which sees every column.
+
+    Uses scipy's default settings: Yates' continuity correction is applied
+    automatically to the one 2x2 table (PhoneService) but not to the eight
+    3x2 tables, so chi2/p_value/cramers_v are not computed identically
+    across every row -- noted since the table mixes both, though it does not
+    change any row's significant conclusion. No multiple-comparison
+    correction is applied across the 9 tests; at CLAUDE.md's alpha=0.05,
+    Bonferroni-adjusting to alpha/9=0.0056 would not change any row's
+    significant flag on current data either.
     """
     rows = []
     for col in SERVICE_COLUMNS:
@@ -146,7 +155,7 @@ def fit_driver_diagnostic_model(
     categorical_columns = [c for c in X.columns if c not in NUMERIC_COLUMNS]
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), NUMERIC_COLUMNS),
-        ("cat", OneHotEncoder(handle_unknown="ignore"), categorical_columns),
+        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_columns),
     ])
 
     scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
@@ -177,29 +186,23 @@ def fit_driver_diagnostic_model(
     }
 
 
-def _original_column_for(feature_name: str, categorical_columns: list[str]) -> str:
-    """Map a ColumnTransformer output feature name back to its source column.
+def _feature_group_columns(preprocessor: ColumnTransformer, categorical_columns: list[str]) -> np.ndarray:
+    """Map each column of the transformed feature matrix to its original source column.
 
-    Numeric features pass through as "num__<col>". One-hot dummies come out
-    as "cat__<col>_<level>", matched against the *longest* categorical_columns
-    entry the remainder starts with (checked with a trailing "_" so the
-    match lands on a real column/level boundary, not just a shared string
-    prefix) -- so a column name that happens to be a prefix of another's
-    (e.g. a hypothetical InternetService / InternetServiceType pair) doesn't
-    steal its dummies. Raises ValueError if a "cat__" feature matches no
-    known categorical column, rather than letting an empty-sequence max()
-    fail with an opaque error.
+    Built directly from the fitted transformer's own structure -- NUMERIC_COLUMNS
+    order for the "num" step, and the fitted OneHotEncoder's categories_ (one
+    array of learned categories per input column, in the same order as
+    categorical_columns) for the "cat" step -- rather than parsing generated
+    "cat__<col>_<level>" feature-name strings. This is exact: there is no
+    prefix-matching heuristic and no ambiguity for column names that happen to
+    be string prefixes of one another (e.g. a hypothetical InternetService /
+    InternetServiceType pair).
     """
-    if feature_name.startswith("num__"):
-        return feature_name[len("num__"):]
-    remainder = feature_name[len("cat__"):]
-    candidates = [c for c in categorical_columns if remainder.startswith(c + "_")]
-    if not candidates:
-        raise ValueError(
-            f"Cannot map transformed feature {feature_name!r} back to a known "
-            f"categorical column in {categorical_columns}."
-        )
-    return max(candidates, key=len)
+    encoder = preprocessor.named_transformers_["cat"]
+    groups: list[str] = list(NUMERIC_COLUMNS)
+    for column, categories in zip(categorical_columns, encoder.categories_):
+        groups.extend([column] * len(categories))
+    return np.array(groups)
 
 
 def shap_global_importance(
@@ -209,14 +212,18 @@ def shap_global_importance(
 
     Explains the *test* split (not the training fit), so the reported global
     importance reflects generalization behavior rather than training-set
-    overfitting artifacts. One-hot dummy columns for the same original
-    categorical feature are summed *per row* first (SHAP values are
-    additive, so this row's signed total is that feature's actual
-    contribution to that prediction), and only then is the mean absolute
-    value taken across rows. Summing per-dummy mean(|shap|) values instead
-    (as if each dummy level were an independent feature) would overcount
-    features with more levels, since |a| + |b| >= |a + b| whenever a dummy
-    level's contribution partially offsets another's within the same row.
+    overfitting artifacts. `df` is ignored when `result` is supplied (the
+    already-fitted model's own test split is explained instead) -- callers
+    that want a different df's importances must pass result=None.
+
+    One-hot dummy columns for the same original categorical feature are
+    summed *per row* first (SHAP values are additive, so this row's signed
+    total is that feature's actual contribution to that prediction), and
+    only then is the mean absolute value taken across rows. Summing
+    per-dummy mean(|shap|) values instead (as if each dummy level were an
+    independent feature) would overcount features with more levels, since
+    |a| + |b| >= |a + b| whenever a dummy level's contribution partially
+    offsets another's within the same row.
     """
     if result is None:
         result = fit_driver_diagnostic_model(df)
@@ -226,21 +233,44 @@ def shap_global_importance(
     model = pipeline.named_steps["clf"]
 
     X_test_transformed = preprocessor.transform(result["X_test"])
-    feature_names = preprocessor.get_feature_names_out()
     categorical_columns = [c for c in result["X_test"].columns if c not in NUMERIC_COLUMNS]
+    original_columns = _feature_group_columns(preprocessor, categorical_columns)
 
     explainer = shap.TreeExplainer(model)
-    shap_values = explainer.shap_values(X_test_transformed)
+    shap_values = np.asarray(explainer.shap_values(X_test_transformed))
+    if shap_values.ndim != 2:
+        raise ValueError(
+            "Expected TreeExplainer.shap_values() to return a 2D array "
+            f"(n_samples, n_features) for this binary XGBClassifier, got shape "
+            f"{shap_values.shape}. The output shape can vary by shap/xgboost "
+            "version for some classifier paths -- update this aggregation if "
+            "that has changed rather than silently computing wrong importances."
+        )
+    if shap_values.shape[1] != len(original_columns):
+        raise ValueError(
+            f"SHAP output has {shap_values.shape[1]} columns but "
+            f"{len(original_columns)} were expected from the fitted "
+            "preprocessor -- the feature-group mapping is out of sync with "
+            "the transformed matrix."
+        )
 
-    original_columns = np.array(
-        [_original_column_for(f, categorical_columns) for f in feature_names]
-    )
+    ranked = _aggregate_shap_by_group(shap_values, original_columns)
+    return ranked.sort_values("mean_abs_shap", ascending=False).head(top_n).reset_index(drop=True)
+
+
+def _aggregate_shap_by_group(shap_values: np.ndarray, original_columns: np.ndarray) -> pd.DataFrame:
+    """Sum each row's signed SHAP values within a group, then take mean(|.|) across rows.
+
+    Pulled out as its own pure function so the aggregation math (see
+    shap_global_importance's docstring for why this order matters) can be
+    unit-tested directly with a hand-computed matrix, independent of fitting
+    a model or running TreeExplainer.
+    """
     rows = []
     for column in pd.unique(original_columns):
         row_signed_sum = shap_values[:, original_columns == column].sum(axis=1)
         rows.append({"column": column, "mean_abs_shap": round(float(np.abs(row_signed_sum).mean()), 4)})
-    ranked = pd.DataFrame(rows, columns=["column", "mean_abs_shap"])
-    return ranked.sort_values("mean_abs_shap", ascending=False).head(top_n).reset_index(drop=True)
+    return pd.DataFrame(rows, columns=["column", "mean_abs_shap"])
 
 
 def plot_numeric_correlation(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> Path:
@@ -286,6 +316,10 @@ def plot_shap_global_importance(
 def generate_driver_figures(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> list[Path]:
     """Generate and save every driver-analysis chart, fitting the diagnostic model once."""
     diagnostic_result = fit_driver_diagnostic_model(df)
+    logger.info(
+        "Diagnostic model: AUC-ROC=%.4f, PR-AUC=%.4f (leakage threshold=%.2f)",
+        diagnostic_result["auc"], diagnostic_result["pr_auc"], LEAKAGE_AUC_THRESHOLD,
+    )
     return [
         plot_numeric_correlation(df, out_dir),
         plot_chi_square_service_association(df, out_dir),
