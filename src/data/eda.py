@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 SEGMENT_COLUMNS = ["Contract", "InternetService", "PaymentMethod", "TechSupport", "SeniorCitizen"]
 NUMERIC_COLUMNS = ["tenure", "MonthlyCharges", "TotalCharges"]
+CHURN_PALETTE = {0: "#4C72B0", 1: "#C44E52"}
+IQR_MULTIPLIER = 1.5
 
 sns.set_theme(style="whitegrid")
 
@@ -73,7 +75,7 @@ def plot_tenure_distribution(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> P
     fig, ax = plt.subplots(figsize=(7, 4))
     sns.histplot(
         data=df, x="tenure", hue=TARGET_COLUMN, bins=30, multiple="stack",
-        palette={0: "#4C72B0", 1: "#C44E52"}, ax=ax,
+        palette=CHURN_PALETTE, ax=ax,
     )
     ax.set_title("Tenure Distribution by Churn")
     ax.set_xlabel("Tenure (months)")
@@ -86,7 +88,7 @@ def plot_charges_distribution(df: pd.DataFrame, column: str, out_dir: Path = FIG
     fig, ax = plt.subplots(figsize=(7, 4))
     sns.kdeplot(
         data=df, x=column, hue=TARGET_COLUMN, fill=True, common_norm=False,
-        palette={0: "#4C72B0", 1: "#C44E52"}, ax=ax,
+        palette=CHURN_PALETTE, ax=ax,
     )
     ax.set_title(f"{column} Distribution by Churn")
     ax.set_xlabel(column)
@@ -102,8 +104,71 @@ def plot_correlation_heatmap(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> P
     return _save_fig(fig, "correlation_heatmap.png", out_dir)
 
 
+def _iqr_fence(s: pd.Series, k: float = IQR_MULTIPLIER) -> tuple[float, float, float, float, float]:
+    """Return (q1, q3, iqr, lower_bound, upper_bound) for a Tukey IQR fence."""
+    q1, q3 = s.quantile(0.25), s.quantile(0.75)
+    iqr = q3 - q1
+    return q1, q3, iqr, q1 - k * iqr, q3 + k * iqr
+
+
+def detect_outliers_iqr(df: pd.DataFrame, column: str, k: float = IQR_MULTIPLIER) -> pd.DataFrame:
+    """Return rows of `df` where `column` falls outside its Tukey IQR fence."""
+    _, _, _, lower, upper = _iqr_fence(df[column], k)
+    return df[(df[column] < lower) | (df[column] > upper)]
+
+
+def summarize_outliers(
+    df: pd.DataFrame, columns: list[str] | None = None, k: float = IQR_MULTIPLIER
+) -> pd.DataFrame:
+    """Return per-column IQR fence bounds and outlier counts."""
+    columns = NUMERIC_COLUMNS if columns is None else columns
+    rows = []
+    for col in columns:
+        q1, q3, iqr, lower, upper = _iqr_fence(df[col], k)
+        n_outliers = len(detect_outliers_iqr(df, col, k))
+        rows.append({
+            "column": col, "q1": q1, "q3": q3, "iqr": iqr,
+            "lower_bound": lower, "upper_bound": upper,
+            "n_outliers": n_outliers,
+            "pct_outliers": round(n_outliers / len(df) * 100, 2) if len(df) else 0.0,
+        })
+    return pd.DataFrame(rows, columns=[
+        "column", "q1", "q3", "iqr", "lower_bound", "upper_bound", "n_outliers", "pct_outliers",
+    ])
+
+
+def distribution_stats(df: pd.DataFrame, columns: list[str] | None = None) -> pd.DataFrame:
+    """Return mean/median/std/skew/kurtosis/min/max per numeric column."""
+    columns = NUMERIC_COLUMNS if columns is None else columns
+    rows = []
+    for col in columns:
+        s = df[col]
+        rows.append({
+            "column": col, "mean": s.mean(), "median": s.median(), "std": s.std(),
+            "skew": s.skew(), "kurtosis": s.kurt(), "min": s.min(), "max": s.max(),
+        })
+    return pd.DataFrame(rows, columns=[
+        "column", "mean", "median", "std", "skew", "kurtosis", "min", "max",
+    ])
+
+
+def plot_outlier_boxplot(df: pd.DataFrame, column: str, out_dir: Path = FIGURES_DIR) -> Path:
+    """Boxplot of `column` split by churn status, for visual outlier inspection."""
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.boxplot(
+        data=df, x=TARGET_COLUMN, y=column, hue=TARGET_COLUMN,
+        palette=CHURN_PALETTE, legend=False, ax=ax,
+    )
+    ax.set_title(f"{column} by Churn (outlier check)")
+    ax.set_xlabel("Churn")
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["No", "Yes"])
+    ax.set_ylabel(column)
+    return _save_fig(fig, f"{column.lower()}_boxplot.png", out_dir)
+
+
 def generate_all_figures(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> list[Path]:
-    """Generate and save every KPI chart used in the EDA notebook."""
+    """Generate and save every KPI chart used in the EDA notebooks."""
     paths = [plot_class_balance(df, out_dir)]
     for col in SEGMENT_COLUMNS:
         paths.append(plot_churn_rate_by_segment(df, col, out_dir))
@@ -111,6 +176,8 @@ def generate_all_figures(df: pd.DataFrame, out_dir: Path = FIGURES_DIR) -> list[
     paths.append(plot_charges_distribution(df, "MonthlyCharges", out_dir))
     paths.append(plot_charges_distribution(df, "TotalCharges", out_dir))
     paths.append(plot_correlation_heatmap(df, out_dir))
+    for col in NUMERIC_COLUMNS:
+        paths.append(plot_outlier_boxplot(df, col, out_dir))
     return paths
 
 

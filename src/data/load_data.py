@@ -21,6 +21,16 @@ def load_raw_data(path=RAW_DATA_PATH) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def missing_total_charges_rows(raw: pd.DataFrame) -> pd.DataFrame:
+    """Return raw rows whose TotalCharges is blank (pre-imputation).
+
+    `.astype(str)` before `.str.strip()` so this doesn't raise if a future
+    CSV re-download has no blanks and pandas reads the column as numeric.
+    """
+    blank_mask = pd.to_numeric(raw["TotalCharges"].astype(str).str.strip(), errors="coerce").isna()
+    return raw.loc[blank_mask]
+
+
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean the raw Telco churn frame into a modeling-ready shape.
 
