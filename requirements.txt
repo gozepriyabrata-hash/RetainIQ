@@ -3,11 +3,11 @@ numpy
 scipy==1.16.3
 scikit-learn==1.6.1
 xgboost==3.4.1
-lightgbm
-imbalanced-learn
+lightgbm==4.7.0
+imbalanced-learn==0.14.0
 shap==0.52.0
 lime
-mlflow
+mlflow==3.15.1
 fastapi
 uvicorn[standard]
 streamlit==1.51.0
