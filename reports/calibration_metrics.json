@@ -1,0 +1,10 @@
+{
+  "brier_raw": 0.1465541392457269,
+  "brier_calibrated": 0.13757511355243404,
+  "auc_raw": 0.8434110930274614,
+  "auc_calibrated": 0.8424914102663463,
+  "ece_raw": 0.08027932050620054,
+  "ece_calibrated": 0.03012207162195012,
+  "base_model_name": "XGBoost",
+  "calibration_method": "isotonic"
+}

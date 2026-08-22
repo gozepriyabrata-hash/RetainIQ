@@ -120,6 +120,9 @@ python -m src.explain.driver_analysis
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
+# Calibrate the winning model's probabilities (isotonic), saves to models/
+python -m src.models.calibration
+
 # MLflow UI
 mlflow ui --backend-store-uri sqlite:///mlflow.db   # http://localhost:5000
 

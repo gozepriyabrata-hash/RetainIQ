@@ -26,6 +26,7 @@ LEAKAGE_AUC_THRESHOLD = 0.95
 TARGET_AUC = 0.85
 DEFAULT_DECISION_THRESHOLD = 0.5
 THRESHOLD_GRID = np.linspace(0.05, 0.95, 91)
+ECE_BINS = 10
 
 
 def check_auc_leakage_guard(auc: float, threshold: float = LEAKAGE_AUC_THRESHOLD) -> None:
@@ -61,6 +62,44 @@ def compute_classification_metrics(
         "f1": float(f1_score(y_true, pred, zero_division=0)),
         "brier": float(brier_score_loss(y_true, y_proba)),
     }
+
+
+def expected_calibration_error(
+    y_true: ArrayLike, y_proba: ArrayLike, n_bins: int = ECE_BINS
+) -> float:
+    """Sample-size-weighted mean |observed rate - mean predicted probability| over n_bins.
+
+    Bins are equal-width over [0, 1]: bin i covers [i/n_bins, (i+1)/n_bins),
+    except the last bin, which is closed on both ends so a prediction of
+    exactly 1.0 lands in it rather than overflowing into a nonexistent
+    n_bins-th bucket (`np.minimum(..., n_bins - 1)` below). Empty bins
+    contribute 0, not NaN, so a `y_proba` that never lands in some bin
+    doesn't blow up the sum.
+
+    This binning convention (floor-based, left-inclusive) differs slightly
+    from `sklearn.calibration.calibration_curve`'s `searchsorted`-based one
+    at exact bin-edge floating-point values (e.g. a probability of exactly
+    0.3 with n_bins=10) -- real model output essentially never lands exactly
+    on a k/n_bins boundary, so this is a documented non-issue, not a bug to
+    reconcile between the two.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_proba = np.asarray(y_proba, dtype=float)
+    n = len(y_proba)
+    if n == 0:
+        return 0.0
+
+    bin_idx = np.minimum((y_proba * n_bins).astype(int), n_bins - 1)
+    ece = 0.0
+    for b in range(n_bins):
+        mask = bin_idx == b
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        bin_confidence = y_proba[mask].mean()
+        bin_accuracy = y_true[mask].mean()
+        ece += (count / n) * abs(bin_accuracy - bin_confidence)
+    return float(ece)
 
 
 def tune_decision_threshold(
