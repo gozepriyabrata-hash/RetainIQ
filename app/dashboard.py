@@ -59,10 +59,22 @@ def main() -> None:
     cols = st.columns(len(summary))
     for col, (_, row) in zip(cols, summary.iterrows()):
         col.metric(row["kpi"], f"{row['value']} {row['unit']}")
+
+    # Name the actual numeric contradiction, not just the formula limitation:
+    # CLV / ARPU implies an average customer lifetime in months (since
+    # CLV = ARPU / churn_fraction = ARPU / (churn_rate_pct / 100)), which
+    # visibly disagrees with the separately-computed Avg Tenure tile above --
+    # see clv_kpi's docstring and .claude/specs/07-kpi-dashboard.md for why.
+    churn_rate_pct = summary.loc[summary["kpi"] == "Churn Rate", "value"].iloc[0]
+    avg_tenure_months = summary.loc[summary["kpi"] == "Avg Tenure", "value"].iloc[0]
+    implied_lifetime_months = round(100 / churn_rate_pct, 1)
     st.caption(
         "CLV is a simplified estimate (avg. monthly revenue ÷ overall churn rate) -- "
-        "not a monthly-cohort-based lifetime value, since no predictive/survival model "
-        "exists yet. See src/data/kpi.py's clv_kpi docstring for the full caveat."
+        f"it implies an average customer lifetime of ~{implied_lifetime_months} months, "
+        f"which disagrees with the {avg_tenure_months}-month Avg Tenure tile above because "
+        "the two use different denominators (a cross-sectional churn share vs. actual "
+        "observed tenure), not a monthly-cohort-based lifetime value. See src/data/kpi.py's "
+        "clv_kpi docstring for the full caveat."
     )
 
     left, right = st.columns(2)
