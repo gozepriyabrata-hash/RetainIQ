@@ -31,34 +31,62 @@ def missing_total_charges_rows(raw: pd.DataFrame) -> pd.DataFrame:
     return raw.loc[blank_mask]
 
 
+def _clean_common_fields(df: pd.DataFrame) -> pd.DataFrame:
+    """Dataset-quirk fixes shared by clean_data() and prepare_scoring_input().
+
+    Strips stray whitespace from every text column, coerces TotalCharges to
+    numeric (imputing the 11 blank-string new-customer rows to 0, since a
+    customer on the books for zero months has been billed nothing), and
+    normalizes SeniorCitizen onto the same Yes/No vocabulary as the other
+    categorical flags. The SeniorCitizen mapping only applies when its dtype
+    isn't already object -- a generalization clean_data() never previously
+    needed (the raw CSV always encodes it numerically), added so a caller
+    that already passes "Yes"/"No" (e.g. an inference payload) is left
+    untouched instead of raising or nulling the column out.
+    """
+    df = df.copy()
+
+    object_cols = df.select_dtypes(include="object").columns
+    for col in object_cols:
+        df[col] = df[col].str.strip()
+
+    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
+    df["TotalCharges"] = df["TotalCharges"].fillna(0.0)
+
+    if df["SeniorCitizen"].dtype != "object":
+        df["SeniorCitizen"] = df["SeniorCitizen"].map({0: "No", 1: "Yes"})
+
+    return df
+
+
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     """Clean the raw Telco churn frame into a modeling-ready shape.
 
     Steps: fix blank TotalCharges, encode the target, normalize categoricals,
     and drop the customer identifier.
     """
-    df = df.copy()
-
-    # Strip stray whitespace from every text column (values and header noise alike).
-    object_cols = df.select_dtypes(include="object").columns
-    for col in object_cols:
-        df[col] = df[col].str.strip()
-
-    # TotalCharges is read as text because 11 rows are "" for brand-new customers
-    # (tenure == 0). Coerce to numeric, then impute those rows to 0 since a
-    # customer who has been on the books for zero months has been billed nothing.
-    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
-    df["TotalCharges"] = df["TotalCharges"].fillna(0.0)
+    df = _clean_common_fields(df)
 
     df[TARGET_COLUMN] = df[TARGET_COLUMN].map({"Yes": 1, "No": 0}).astype(int)
-
-    # Keep SeniorCitizen on the same Yes/No vocabulary as the other categorical
-    # flags instead of a bare 0/1 int, so EDA and SHAP output read consistently.
-    df["SeniorCitizen"] = df["SeniorCitizen"].map({0: "No", 1: "Yes"})
 
     df = df.drop(columns=[ID_COLUMN])
 
     return df
+
+
+def prepare_scoring_input(raw_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series | None]:
+    """Clean unlabeled inference input for scoring: (features_df, customer_ids).
+
+    Unlike clean_data(), this does not require (or touch) a Churn column --
+    the input is a customer to be scored, not a labeled training row. If
+    ID_COLUMN is present it's captured and returned separately (so a caller
+    can re-attach it to scored output) rather than silently dropped with no
+    way to recover it; if absent, customer_ids is None.
+    """
+    customer_ids = raw_df[ID_COLUMN].copy() if ID_COLUMN in raw_df.columns else None
+    features_df = _clean_common_fields(raw_df)
+    features_df = features_df.drop(columns=[ID_COLUMN, TARGET_COLUMN], errors="ignore")
+    return features_df, customer_ids
 
 
 def save_clean_data(df: pd.DataFrame) -> None:

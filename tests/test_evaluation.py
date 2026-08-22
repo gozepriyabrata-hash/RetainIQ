@@ -5,6 +5,7 @@ from src.models.evaluation import (
     LEAKAGE_AUC_THRESHOLD,
     check_auc_leakage_guard,
     compute_classification_metrics,
+    expected_calibration_error,
     tune_decision_threshold,
 )
 
@@ -75,3 +76,37 @@ def test_tune_decision_threshold_default_grid_is_within_bounds():
 
     assert 0.05 <= best_threshold <= 0.95
     assert 0.0 <= best_f1 <= 1.0
+
+
+def test_expected_calibration_error_zero_on_perfect_calibration():
+    # Every prediction lands in the same bin (all 0.5) whose mean predicted
+    # probability (0.5) exactly matches the bin's observed positive rate
+    # (2 of 4 true labels are 1) -- ECE must be exactly 0.
+    y_true = [0, 1, 0, 1]
+    y_proba = [0.5, 0.5, 0.5, 0.5]
+
+    assert expected_calibration_error(y_true, y_proba) == pytest.approx(0.0)
+
+
+def test_expected_calibration_error_positive_on_miscalibration():
+    # 2 equal-width bins: [0, 0.5) and [0.5, 1.0]. Bin 0 (mean proba 0.1) is
+    # all churners (observed rate 1.0, gap 0.9); bin 1 (mean proba 0.9) has
+    # no churners (observed rate 0.0, gap 0.9). Each bin holds half the rows,
+    # so ECE = 0.5*0.9 + 0.5*0.9 = 0.9, matched by hand here.
+    y_true = [1, 1, 0, 0]
+    y_proba = [0.1, 0.1, 0.9, 0.9]
+
+    assert expected_calibration_error(y_true, y_proba, n_bins=2) == pytest.approx(0.9)
+
+
+def test_expected_calibration_error_handles_proba_of_exactly_one():
+    # A prediction of exactly 1.0 must land in the last bin, not overflow
+    # into a nonexistent n_bins-th bucket.
+    y_true = [1, 1]
+    y_proba = [1.0, 1.0]
+
+    assert expected_calibration_error(y_true, y_proba) == pytest.approx(0.0)
+
+
+def test_expected_calibration_error_empty_input_is_zero():
+    assert expected_calibration_error([], []) == 0.0
