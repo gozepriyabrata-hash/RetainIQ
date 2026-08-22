@@ -5,6 +5,7 @@
 .venv/
 .env*
 !.env.example
+.streamlit/secrets.toml
 __pycache__/
 *.pyc
 mlruns/

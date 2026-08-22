@@ -10,8 +10,8 @@ lime
 mlflow
 fastapi
 uvicorn[standard]
-streamlit
-plotly
+streamlit==1.51.0
+plotly==6.3.0
 seaborn
 matplotlib
 notebook

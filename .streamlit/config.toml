@@ -1,0 +1,12 @@
+# Streamlit binds all network interfaces by default (not localhost-only, despite
+# appearances) -- restrict it to loopback since this is a local/portfolio-demo
+# tool with no authentication. See .claude/specs/07-kpi-dashboard.md's Security
+# notes for the finding this fixes.
+[server]
+address = "127.0.0.1"
+
+# Defense in depth alongside app/dashboard.py's broad exception handling: even
+# on an unanticipated failure, never render a full traceback (absolute paths,
+# library versions) in the browser.
+[client]
+showErrorDetails = "none"
