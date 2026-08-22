@@ -121,7 +121,7 @@ python -m src.explain.driver_analysis
 python -m src.models.train
 
 # MLflow UI
-mlflow ui                      # http://localhost:5000
+mlflow ui --backend-store-uri sqlite:///mlflow.db   # http://localhost:5000
 
 # Run the API
 uvicorn src.api.main:app --reload --port 8000     # docs at /docs
@@ -266,7 +266,7 @@ Work top to bottom. Update the status as phases complete.
 |---|---|---|
 | 0 | Project scaffold, requirements, git init | ☑ |
 | 1 | Data loading, cleaning, EDA, first tests | ☑ |
-| 2 | Feature pipeline, model training + comparison, MLflow | ☐ |
+| 2 | Feature pipeline, model training + comparison, MLflow | ☑ |
 | 3 | SHAP + LIME explainability, plain-English reasons | ☐ |
 | 4 | Risk tiers + Next-Best-Action engine, optional LLM | ☐ |
 | 5 | FastAPI service + Streamlit dashboard + What-If panel | ☐ |
