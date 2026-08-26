@@ -6,7 +6,7 @@ xgboost==3.4.1
 lightgbm==4.7.0
 imbalanced-learn==0.14.0
 shap==0.52.0
-lime
+lime==0.2.0.1
 mlflow==3.15.1
 fastapi
 uvicorn[standard]
