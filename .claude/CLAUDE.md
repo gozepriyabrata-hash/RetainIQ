@@ -117,6 +117,9 @@ python -m src.data.lifecycle
 # Regenerate churn-driver-ID figures (correlation, chi-square, SHAP global importance)
 python -m src.explain.driver_analysis
 
+# Regenerate production-model explainability figures (SHAP global importance on the real model)
+python -m src.explain.local_explainer
+
 # Train + compare models (logs to MLflow, saves best to models/)
 python -m src.models.train
 
@@ -270,7 +273,7 @@ Work top to bottom. Update the status as phases complete.
 | 0 | Project scaffold, requirements, git init | ☑ |
 | 1 | Data loading, cleaning, EDA, first tests | ☑ |
 | 2 | Feature pipeline, model training + comparison, MLflow | ☑ |
-| 3 | SHAP + LIME explainability, plain-English reasons | ☐ |
+| 3 | SHAP + LIME explainability, plain-English reasons | ☑ |
 | 4 | Risk tiers + Next-Best-Action engine, optional LLM | ☐ |
 | 5 | FastAPI service + Streamlit dashboard + What-If panel | ☐ |
 | 6 | Evidently drift, retraining flow, Docker, deploy notes | ☐ |
