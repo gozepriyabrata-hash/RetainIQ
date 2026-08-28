@@ -1,8 +1,11 @@
-"""Pydantic request/response models for the POST /explain contract (CLAUDE.md
-Section 10). CustomerPayload covers every raw Telco column CLAUDE.md Section 6
-documents except Churn; ShapDriver/LimeDriver/ExplainResponse mirror
-src.explain.local_explainer.explain_customer's existing dict output verbatim
--- no reshaping. See .claude/specs/12-explain-endpoint.md for the full spec.
+"""Pydantic request/response models for the POST /explain and POST /recommend
+contracts (CLAUDE.md Section 10). CustomerPayload covers every raw Telco
+column CLAUDE.md Section 6 documents except Churn, and is shared by both
+routes; ShapDriver/LimeDriver/ExplainResponse and ActionItem/RecommendResponse
+mirror src.explain.local_explainer.explain_customer's and
+src.recommend.action_engine.recommend_actions_for_customer's existing dict
+output verbatim -- no reshaping. See .claude/specs/12-explain-endpoint.md and
+.claude/specs/14-recommend-endpoint.md for the full specs.
 """
 
 from typing import Literal
@@ -112,6 +115,29 @@ class ExplainResponse(BaseModel):
     customerID: str | None = None
     shap_top_drivers: list[ShapDriver]
     lime_top_drivers: list[LimeDriver]
+
+
+class ActionItem(BaseModel):
+    """One entry of recommend_actions()/recommend_actions_for_customer()'s
+    "actions" list."""
+
+    priority: int
+    action: str
+    category: str
+    rationale: str
+    source: str
+    driver_feature: str | None
+
+
+class RecommendResponse(BaseModel):
+    """POST /recommend's response body -- field-for-field identical to
+    recommend_actions_for_customer()'s dict output."""
+
+    customerID: str | None = None
+    churn_probability: float
+    churn_probability_pct: float
+    risk_tier: str
+    actions: list[ActionItem]
 
 
 class HealthResponse(BaseModel):
