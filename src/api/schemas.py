@@ -4,8 +4,9 @@ column CLAUDE.md Section 6 documents except Churn, and is shared by both
 routes; ShapDriver/LimeDriver/ExplainResponse and ActionItem/RecommendResponse
 mirror src.explain.local_explainer.explain_customer's and
 src.recommend.action_engine.recommend_actions_for_customer's existing dict
-output verbatim -- no reshaping. See .claude/specs/12-explain-endpoint.md and
-.claude/specs/14-recommend-endpoint.md for the full specs.
+output verbatim -- no reshaping. See .claude/specs/12-explain-endpoint.md,
+.claude/specs/14-recommend-endpoint.md, and .claude/specs/15-expected-churn-
+reduction.md for the full specs.
 """
 
 from typing import Literal
@@ -127,6 +128,8 @@ class ActionItem(BaseModel):
     rationale: str
     source: str
     driver_feature: str | None
+    expected_churn_reduction_pct: float | None = None
+    counterfactual_basis: str | None = None
 
 
 class RecommendResponse(BaseModel):

@@ -405,7 +405,9 @@ def test_recommend_matches_worked_example_critical(client):
     assert len(actions) == 3
     assert actions[0]["source"] == "tier" and actions[0]["category"] == "escalation"
     assert actions[1]["driver_feature"] == "tenure" and actions[1]["category"] == "onboarding"
+    assert actions[1]["expected_churn_reduction_pct"] is None
     assert actions[2]["driver_feature"] == "Contract" and actions[2]["category"] == "contract"
+    assert actions[2]["expected_churn_reduction_pct"] == 58.6
     assert not any(a["driver_feature"] == "InternetService" for a in actions)
 
 
@@ -427,7 +429,9 @@ def test_recommend_matches_worked_example_low(client):
     actions = body["actions"]
     assert len(actions) == 2
     assert actions[0]["source"] == "tier" and actions[0]["category"] == "monitor"
+    assert actions[0]["expected_churn_reduction_pct"] is None
     assert actions[1]["driver_feature"] == "Contract" and actions[1]["category"] == "contract"
+    assert actions[1]["expected_churn_reduction_pct"] == 14.4
 
 
 def test_recommend_503_when_calibrated_pipeline_missing(monkeypatch):
