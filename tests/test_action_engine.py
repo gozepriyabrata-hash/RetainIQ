@@ -4,6 +4,7 @@ import src.recommend.action_engine as action_engine
 import src.recommend.risk_tiers as risk_tiers
 from src.data import cohorts
 from src.explain import local_explainer
+from src.models import calibration
 
 # Real raw customer rows (Churn stripped), captured during
 # .claude/specs/13-retention-action-engine.md's spec research. Reused
@@ -234,6 +235,19 @@ def test_recommend_actions_for_customer_propagates_scoring_errors(explainer_cont
     del incomplete_customer["Contract"]
     with pytest.raises(ValueError):
         action_engine.recommend_actions_for_customer(incomplete_customer, explainer_context=explainer_context)
+
+
+def test_recommend_actions_for_customer_accepts_explicit_pipeline(explainer_context):
+    """pipeline forwarding (.claude/specs/14-recommend-endpoint.md Req. 1) must
+    not change output versus the default fresh-load-from-disk path."""
+    pipeline = calibration.load_calibrated_model()
+    result_with_pipeline = action_engine.recommend_actions_for_customer(
+        LOW_CUSTOMER, pipeline=pipeline, explainer_context=explainer_context,
+    )
+    result_default = action_engine.recommend_actions_for_customer(
+        LOW_CUSTOMER, explainer_context=explainer_context,
+    )
+    assert result_with_pipeline == result_default
 
 
 # --- constants ----------------------------------------------------------------

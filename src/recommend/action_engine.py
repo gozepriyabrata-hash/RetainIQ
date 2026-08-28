@@ -177,17 +177,38 @@ def recommend_actions(
 
 
 def recommend_actions_for_customer(
-    customer: dict, explainer_context: dict | None = None, top_n: int = TOP_N_ACTIONS
+    customer: dict,
+    *,
+    pipeline: object | None = None,
+    explainer_context: dict | None = None,
+    top_n: int = TOP_N_ACTIONS,
 ) -> dict:
     """Raw customer attributes in, (risk_tier, ranked actions) out.
 
     Thin composition of risk_tiers.classify_scored_customers +
-    local_explainer.explain_customer -- the function a future Phase 5
-    POST /recommend endpoint (CLAUDE.md Sec 10) calls directly. Every
-    classify_scored_customers/explain_customer edge case (missing required
-    column, unseen category, missing model artifact) propagates unchanged
-    since this never reimplements scoring or explanation, only pipes their
-    output onward.
+    local_explainer.explain_customer -- the function the Phase 5
+    POST /recommend endpoint (CLAUDE.md Sec 10, src/api/main.py) calls
+    directly. Every classify_scored_customers/explain_customer edge case
+    (missing required column, unseen category, missing model artifact)
+    propagates unchanged since this never reimplements scoring or
+    explanation, only pipes their output onward.
+
+    pipeline is forwarded unchanged to risk_tiers.classify_scored_customers
+    (and from there to scoring.score_customers) -- None (the default)
+    preserves this function's original behavior of loading the calibrated
+    model fresh from disk on every call; a caller processing many
+    customers, or an API route that already loaded the pipeline once at
+    startup, should pass it in explicitly to avoid
+    calibration.load_calibrated_model()'s ~1.78s cold-load cost per call.
+    Note this only skips the pickle load -- scoring.score_customers still
+    re-reads and re-parses the (small) model metadata JSON on every call
+    regardless of whether pipeline is supplied; that cost is negligible
+    (sub-millisecond) next to the pickle load, so it's left as-is rather
+    than threading a third cached argument through for it.
+
+    pipeline and explainer_context (and top_n) are keyword-only so a
+    positional second argument can never be silently misbound to pipeline
+    by an existing or future caller.
 
     Building explainer_context when None is expensive (~1.9s per
     local_explainer's own docstring) -- a caller processing more than one
@@ -199,15 +220,15 @@ def recommend_actions_for_customer(
     # reshapes confidence, not which features drove the prediction), so
     # these two calls are intentionally against different underlying
     # models and never expected to numerically reconcile.
-    scored = risk_tiers.classify_scored_customers(pd.DataFrame([customer]))
+    scored = risk_tiers.classify_scored_customers(pd.DataFrame([customer]), pipeline=pipeline)
     row = scored.iloc[0]
 
     # explain_customer also computes lime_top_drivers (a 5000-sample
     # LIME fit) as a side effect; it's discarded below since only SHAP
-    # drivers drive DRIVER_ACTION_RULES. Accepted per this spec's
-    # Requirement 5, which mandates explain_customer's existing contract
-    # rather than a SHAP-only variant -- worth revisiting for latency if
-    # a future Phase 5 /recommend route needs this on a tight SLA.
+    # drivers drive DRIVER_ACTION_RULES. Accepted per 13's Requirement 5,
+    # which mandates explain_customer's existing contract rather than a
+    # SHAP-only variant -- worth revisiting for latency if POST /recommend
+    # (src/api/main.py) ever needs this on a tighter SLA.
     explanation = local_explainer.explain_customer(customer, context=explainer_context)
 
     result = {

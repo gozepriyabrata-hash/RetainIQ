@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -9,6 +10,7 @@ from httpx import Response
 import src.api.main as main
 from src.api.schemas import CUSTOMER_ID_MAX_LENGTH, MAX_MONTHLY_CHARGES, MAX_TENURE_MONTHS
 from src.data.config import PROJECT_ROOT
+from tests.test_action_engine import CRITICAL_CUSTOMER, LOW_CUSTOMER
 from tests.test_local_explainer import HIGH_RISK_TEST_INDEX, LOW_RISK_TEST_INDEX
 
 
@@ -358,3 +360,200 @@ def test_health_and_explain_error_messages_never_leak_paths(monkeypatch):
         explain_response = failed_client.post("/explain", json=_customer_payload_stub())
         assert str(PROJECT_ROOT) not in explain_response.text
         assert escaped_path_fragment not in explain_response.text
+
+
+# --- /recommend ---------------------------------------------------------------
+
+
+def test_recommend_returns_expected_shape(client):
+    payload = _customer_payload(client, HIGH_RISK_TEST_INDEX, "5178-LMXOP")
+    response = client.post("/recommend", json=payload)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert isinstance(body["churn_probability"], float)
+    assert isinstance(body["churn_probability_pct"], float)
+    assert body["risk_tier"] in {"Low", "Medium", "High", "Critical"}
+    assert isinstance(body["actions"], list) and len(body["actions"]) >= 1
+
+    first_action = body["actions"][0]
+    assert isinstance(first_action["priority"], int)
+    assert isinstance(first_action["action"], str) and first_action["action"]
+    assert isinstance(first_action["category"], str) and first_action["category"]
+    assert isinstance(first_action["rationale"], str) and first_action["rationale"]
+    assert isinstance(first_action["source"], str) and first_action["source"]
+    assert first_action["driver_feature"] is None or isinstance(first_action["driver_feature"], str)
+
+
+def test_recommend_matches_worked_example_critical(client):
+    """End-to-end HTTP check on the real 5178-LMXOP customer, against
+    whatever model is currently persisted -- same accepted live-model
+    dependency as test_explain_matches_verified_high_risk_example, NOT the
+    same guarantee as tests/test_action_engine.py's
+    test_recommend_actions_matches_worked_example_critical, which asserts
+    against a frozen, hardcoded SHAP-driver fixture and survives a retrain.
+    This test may need updating (not signal a bug) if a retrain changes
+    this customer's driver ranking or risk tier."""
+    response = client.post("/recommend", json=CRITICAL_CUSTOMER)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["customerID"] == "5178-LMXOP"
+    assert body["risk_tier"] == "Critical"
+
+    actions = body["actions"]
+    assert len(actions) == 3
+    assert actions[0]["source"] == "tier" and actions[0]["category"] == "escalation"
+    assert actions[1]["driver_feature"] == "tenure" and actions[1]["category"] == "onboarding"
+    assert actions[2]["driver_feature"] == "Contract" and actions[2]["category"] == "contract"
+    assert not any(a["driver_feature"] == "InternetService" for a in actions)
+
+
+def test_recommend_matches_worked_example_low(client):
+    """End-to-end HTTP check on the real 9763-GRSKD customer, against
+    whatever model is currently persisted -- see
+    test_recommend_matches_worked_example_critical's docstring for why this
+    is a live-model check, not the frozen-fixture guarantee
+    tests/test_action_engine.py's own worked-example test has. Note this
+    customer is unrelated to LOW_RISK_TEST_INDEX/4376-KFVRS used elsewhere
+    in this file; it exists only as this hardcoded raw dict."""
+    response = client.post("/recommend", json=LOW_CUSTOMER)
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["customerID"] == "9763-GRSKD"
+    assert body["risk_tier"] == "Low"
+
+    actions = body["actions"]
+    assert len(actions) == 2
+    assert actions[0]["source"] == "tier" and actions[0]["category"] == "monitor"
+    assert actions[1]["driver_feature"] == "Contract" and actions[1]["category"] == "contract"
+
+
+def test_recommend_503_when_calibrated_pipeline_missing(monkeypatch):
+    """Independence check (.claude/specs/14-recommend-endpoint.md Req. 2):
+    a calibrated-pipeline load failure must 503 only /recommend, leaving
+    /health and /explain (which depend only on explainer_context) healthy."""
+    def _raise_missing_pipeline(*args, **kwargs):
+        raise _missing_model_error()
+
+    monkeypatch.setattr(main.calibration, "load_calibrated_model", _raise_missing_pipeline)
+
+    with TestClient(main.create_app()) as partial_client:
+        health_response = partial_client.get("/health")
+        assert health_response.status_code == 200
+        assert health_response.json()["model_loaded"] is True
+
+        explain_response = partial_client.post("/explain", json=_customer_payload_stub())
+        assert explain_response.status_code == 200
+
+        recommend_response = partial_client.post("/recommend", json=_customer_payload_stub())
+        assert recommend_response.status_code == 503
+        assert recommend_response.json()["detail"] == main.MODEL_UNAVAILABLE_MESSAGE
+
+
+def test_recommend_503_when_explainer_context_missing(monkeypatch):
+    """Inverse of the above: explainer_context fails to build, calibrated
+    pipeline loads fine -- /recommend still 503s (it requires both)."""
+    def _raise_missing_model(_df):
+        raise _missing_model_error()
+
+    monkeypatch.setattr(main, "build_explainer_context", _raise_missing_model)
+
+    with TestClient(main.create_app()) as partial_client:
+        health_response = partial_client.get("/health")
+        assert health_response.status_code == 200
+        assert health_response.json()["model_loaded"] is False
+
+        recommend_response = partial_client.post("/recommend", json=_customer_payload_stub())
+        assert recommend_response.status_code == 503
+        assert recommend_response.json()["detail"] == main.MODEL_UNAVAILABLE_MESSAGE
+
+
+def test_recommend_503_when_both_artifacts_missing(monkeypatch):
+    """Fresh clone / nothing trained yet: both build_explainer_context and
+    load_calibrated_model fail -- /health still 200 model_loaded: false,
+    both /explain and /recommend 503, matching the spec's stated edge case."""
+    def _raise_missing_model(_df):
+        raise _missing_model_error()
+
+    def _raise_missing_pipeline(*args, **kwargs):
+        raise _missing_model_error()
+
+    monkeypatch.setattr(main, "build_explainer_context", _raise_missing_model)
+    monkeypatch.setattr(main.calibration, "load_calibrated_model", _raise_missing_pipeline)
+
+    with TestClient(main.create_app()) as failed_client:
+        health_response = failed_client.get("/health")
+        assert health_response.status_code == 200
+        assert health_response.json()["model_loaded"] is False
+
+        explain_response = failed_client.post("/explain", json=_customer_payload_stub())
+        assert explain_response.status_code == 503
+
+        recommend_response = failed_client.post("/recommend", json=_customer_payload_stub())
+        assert recommend_response.status_code == 503
+
+
+def test_recommend_422_on_unseen_category(client):
+    payload = _customer_payload(client, LOW_RISK_TEST_INDEX)
+    payload["Contract"] = "Lifetime"
+    response = client.post("/recommend", json=payload)
+    assert response.status_code == 422
+    assert "Lifetime" not in response.text
+
+
+def test_recommend_and_explain_share_lock_under_concurrency(client, monkeypatch):
+    """Directly proves /explain and /recommend serialize on the SAME lock
+    (.claude/specs/14-recommend-endpoint.md Requirement 5) -- a per-route
+    lock would allow same-route concurrency of 1 but cross-route
+    concurrency of 2; interleaving both routes across 6 threads and still
+    observing max_concurrent == 1 rules that out.
+
+    max_concurrent == 1 alone can't distinguish "the lock serialized these"
+    from "the 6 requests just never happened to overlap" -- the wall-clock
+    assertion below is the positive control: each stub holds its slot for
+    HOLD_SECONDS, so 6 fully-serialized calls take at least
+    5 * HOLD_SECONDS (allowing one to run without waiting), while 6 calls
+    with real concurrency would finish far faster.
+    """
+    HOLD_SECONDS = 0.05
+    state = {"concurrent": 0, "max_concurrent": 0, "calls": 0}
+    state_lock = threading.Lock()
+
+    def _bump_and_hold():
+        with state_lock:
+            state["concurrent"] += 1
+            state["calls"] += 1
+            state["max_concurrent"] = max(state["max_concurrent"], state["concurrent"])
+        try:
+            threading.Event().wait(HOLD_SECONDS)
+        finally:
+            with state_lock:
+                state["concurrent"] -= 1
+
+    def _slow_explain(_customer, context=None):
+        _bump_and_hold()
+        return {"shap_top_drivers": [], "lime_top_drivers": []}
+
+    def _slow_recommend(_customer, pipeline=None, explainer_context=None, top_n=3):
+        _bump_and_hold()
+        return {"churn_probability": 0.5, "churn_probability_pct": 50.0, "risk_tier": "Medium", "actions": []}
+
+    monkeypatch.setattr(main, "explain_customer", _slow_explain)
+    monkeypatch.setattr(main, "recommend_actions_for_customer", _slow_recommend)
+
+    payload = _customer_payload_stub()
+    start = time.monotonic()
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = [
+            executor.submit(client.post, "/explain" if i % 2 == 0 else "/recommend", json=payload)
+            for i in range(6)
+        ]
+        responses = [f.result() for f in futures]
+    elapsed = time.monotonic() - start
+
+    assert all(r.status_code == 200 for r in responses)
+    assert state["calls"] == 6
+    assert state["max_concurrent"] == 1
+    assert elapsed >= 5 * HOLD_SECONDS
